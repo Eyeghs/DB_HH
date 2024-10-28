@@ -37,12 +37,11 @@ class DBManager:
         cursor.execute("DROP TABLE IF EXISTS vacancies CASCADE")
         cursor.execute("""CREATE TABLE companies
                     (
-                        company_id serial PRIMARY KEY,
+                        id integer PRIMARY KEY,
                         company_name varchar(100) UNIQUE NOT NULL,
-                        employer_id int UNIQUE NOT NULL,
                         vacancies_count integer
                     );
-                    INSERT INTO companies (company_name, employer_id) VALUES
+                    INSERT INTO companies (company_name, id) VALUES
                         ('Black Star', 748940),
                         ('Sports', 223566),
                         ('Rambler&Co', 8620),
@@ -57,13 +56,13 @@ class DBManager:
         cursor.execute("""CREATE TABLE vacancies
                     (
                         vacancy_id serial PRIMARY KEY,
-                        company_name varchar(100) NOT NULL,
+                        company_id integer NOT NULL,
                         vacancy_name varchar(100) NOT NULL,
                         salary integer,
                         url varchar(100) NOT NULL
                         );
                     """)
-        cursor.execute("ALTER TABLE vacancies ADD CONSTRAINT fk_vacancies_company_name FOREIGN KEY (company_name) REFERENCES companies(company_name)")
+        cursor.execute("ALTER TABLE vacancies ADD CONSTRAINT fk_vacancies_company_name FOREIGN KEY (company_id) REFERENCES companies(id)")
         print('Таблицы созданы.')
         cursor.close()
         conn.close()
@@ -77,16 +76,14 @@ class DBManager:
         cursor = conn.cursor()
         companies_list = []
         conn.autocommit = True
-        cursor.execute("SELECT employer_id FROM companies")
+        cursor.execute("SELECT id FROM companies")
         companies = cursor.fetchall()
         for company in companies:
             vacancies_company = hh_api.get_vacancies(company[0])
             companies_list.append(len(vacancies_company['items']))
             vacancies_list = HHvacancy.make_vacancy(vacancies_company)
             for vacancy in vacancies_list:
-                cursor.execute("INSERT INTO vacancies (company_name, vacancy_name, salary, url) VALUES (%s, %s, %s, %s)", (vacancy._Vacancy__company_name, vacancy._Vacancy__name, vacancy._Vacancy__salary, vacancy._Vacancy__url))
-        for i in range(0, 10):
-            cursor.execute("UPDATE companies SET vacancies_count = %s WHERE employer_id = %s", (companies_list[i], companies[i]))
+                cursor.execute("INSERT INTO vacancies (company_id, vacancy_name, salary, url) VALUES (%s, %s, %s, %s)", (company[0], vacancy._Vacancy__name, vacancy._Vacancy__salary, vacancy._Vacancy__url))
         cursor.close()
         conn.close()
 
@@ -97,7 +94,11 @@ class DBManager:
         conn = psycopg2.connect(dbname="headhunter", user='postgres', password='12345', host="127.0.0.1")
         cursor = conn.cursor()
         conn.autocommit = True
-        cursor.execute("SELECT company_name, vacancies_count FROM companies")
+        cursor.execute("""SELECT company_name, COUNT(*) as vacancies_count 
+                       FROM companies 
+                       INNER JOIN vacancies ON companies.id = vacancies.company_id
+                       GROUP BY company_name
+                       """)
         companies = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -112,7 +113,10 @@ class DBManager:
         conn = psycopg2.connect(dbname="headhunter", user='postgres', password='12345', host="127.0.0.1")
         cursor = conn.cursor()
         conn.autocommit = True
-        cursor.execute("SELECT company_name, vacancy_name, salary, url FROM vacancies")
+        cursor.execute("""SELECT companies.company_name, vacancy_name, salary, url
+                       FROM vacancies
+                       INNER JOIN companies ON companies.id = vacancies.company_id
+                       """)
         vacancies = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -141,7 +145,13 @@ class DBManager:
         conn = psycopg2.connect(dbname="headhunter", user='postgres', password='12345', host="127.0.0.1")
         cursor = conn.cursor()
         conn.autocommit = True
-        cursor.execute("SELECT company_name, vacancy_name, salary, url FROM vacancies WHERE salary > (SELECT AVG(salary) FROM vacancies)")
+        cursor.execute("""SELECT company_name, vacancy_name, salary, url
+                       FROM vacancies
+                       INNER JOIN companies ON companies.id = vacancies.company_id
+                       WHERE salary > (SELECT AVG(salary) FROM vacancies)
+                       GROUP BY company_name, vacancy_name, salary, url
+                       ORDER BY company_name
+                       """)
         vacancies = cursor.fetchall()
         cursor.close()
         conn.close()
